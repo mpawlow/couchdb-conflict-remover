@@ -1,0 +1,74 @@
+{
+	"formatters": {
+		"default": {
+			"format": "[%(asctime)s] [%(levelname)-5s] [%(name)s] %(message)s"
+		}
+	},
+	"handlers": {
+		"console": {
+			"class": "logging.StreamHandler",
+			"formatter": "default",
+			"level": "NOTSET",
+			"stream": "ext://sys.stdout"
+		}
+	},
+	"loggers": {
+		"cloudant_database": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		},
+		"conflict_scanner": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		},
+		"directory_util": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		},
+		"file_util": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		},
+		"index": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		},
+		"python_util": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		},
+		"scan_conflicts_task": {
+			"handlers": [
+				"console"
+			],
+			"level": "INFO",
+			"propagate": false
+		}
+	},
+	"root": {
+		"handlers": [
+			"console"
+		],
+		"level": "INFO"
+	},
+	"version": 1,
+	"disable_existing_loggers": true
+}

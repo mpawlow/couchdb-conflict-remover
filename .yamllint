@@ -1,0 +1,29 @@
+---
+yaml-files:
+  - "*.yaml"
+  - "*.yml"
+  - .yamllint
+
+rules:
+  braces: { min-spaces-inside: 1, max-spaces-inside: 1, min-spaces-inside-empty: 0, max-spaces-inside-empty: 0 }
+  brackets: { min-spaces-inside: 1, max-spaces-inside: 1, min-spaces-inside-empty: 0, max-spaces-inside-empty: 0 }
+  colons: { max-spaces-before: 0, max-spaces-after: 1 }
+  commas: { max-spaces-before: 0, min-spaces-after: 1, max-spaces-after: 1 }
+  comments: { require-starting-space: true, min-spaces-from-content: 2 }
+  comments-indentation: {}
+  document-end: { present: true }
+  document-start: { present: true }
+  empty-lines: { max: 1 }
+  empty-values: { forbid-in-block-mappings: true, forbid-in-flow-mappings: true }
+  hyphens: { max-spaces-after: 1 }
+  indentation: { spaces: 2, indent-sequences: true, check-multi-line-strings: true }
+  key-duplicates: {}
+  key-ordering: disable
+  line-length: { max: 120, allow-non-breakable-words: false }
+  new-line-at-end-of-file: {}
+  new-lines: { type: unix }
+  octal-values: { forbid-implicit-octal: true }
+  quoted-strings: { quote-type: double, required: only-when-needed }
+  trailing-spaces: {}
+  truthy: { allowed-values: [ "true", "false", "on" ] }
+...

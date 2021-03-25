@@ -1,0 +1,12 @@
+---
+language: python
+python:
+  - 3.9.2
+branches:
+  only:
+    - master
+install:
+  - make install
+script:
+  - make build
+...
