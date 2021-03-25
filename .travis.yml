@@ -1,0 +1,15 @@
+---
+dist: focal
+language: python
+git:
+  quiet: true
+python:
+  - 3.9
+branches:
+  only:
+    - master
+install:
+  - make install
+script:
+  - make lint
+...
