@@ -20,6 +20,7 @@
 
 from json import JSONDecodeError
 from requests.exceptions import HTTPError
+from cloudant.error import CloudantDocumentException
 
 # Globals
 
@@ -101,6 +102,34 @@ def log_http_error(logger, err): # pylint: disable=unused-variable
         "Name: {0}.".format(exception_name),
         "Status Code: {0}.".format(status_code),
         "URL: {0}.".format(url),
+        "Message: {0}.".format(exception_message)
+    )
+    content = separator.join(string_buffer)
+
+    logger.error(content)
+
+
+def log_cloudant_document_exception(logger, err): # pylint: disable=unused-variable
+    """
+    Log a CloudantDocumentException
+    """
+
+    exception_name = type(err).__name__
+
+    if not isinstance(err, CloudantDocumentException):
+        message = "Exception is not an instance of CloudantDocumentException: {0}".format(
+            exception_name)
+        logger.error(message)
+        log_exception(logger, err)
+        return
+
+    separator = "\n"
+    exception_message = str(err)
+    code = err.code
+    string_buffer = (
+        "Exception:",
+        "Name: {0}.".format(exception_name),
+        "Code: {0}.".format(code),
         "Message: {0}.".format(exception_message)
     )
     content = separator.join(string_buffer)

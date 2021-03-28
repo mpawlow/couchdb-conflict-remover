@@ -22,39 +22,37 @@ import logging
 import datetime
 import csv
 
-from cloudant.view import View
-
 from lib.constants import constants
 from lib.classes.task_interface import TaskInterface
 from lib.utils import logger_util
-from lib.utils import string_util
 from lib.utils import error_util
 
 # Globals
 
-DEFAULT_LOGGER = logging.getLogger("scan_conflicts_task")
+DEFAULT_LOGGER = logging.getLogger("delete_conflicts_task")
 
 # Classes --------------------------------------------------------------------->
 
-class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
+class DeleteConflictsTask(TaskInterface): # pylint: disable=unused-variable
     """
     TODO
     """
 
-    def __init__(self, deletion_mode, ddoc, csv_file):
+    def __init__(self, database, conflicts, csv_file):
         """
         Constructor
         """
 
-        self._deletion_mode = deletion_mode
-        self._ddoc = ddoc
+        self._database = database
+        self._conflicts = conflicts or []
         self._csv_file = csv_file
 
         self._total_conflicted_documents = 0
+        self._total_resolved_documents = 0
         self._total_conflicted_revisions = 0
+        self._total_deleted_revisions = 0
         self._csv_file_handle = None
         self._csv_file_writer = None
-        self._conflicts = []
 
 
     def __del__(self):
@@ -74,11 +72,13 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
         result = [
             "",
             line,
-            "Scan Details",
+            "Deletion Details",
             line,
             "",
             "- Total Conflicted Documents:         {0}".format(self._total_conflicted_documents),
+            "- Total Resolved Documents:           {0}".format(self._total_resolved_documents),
             "- Total Conflicted Revisions:         {0}".format(self._total_conflicted_revisions),
+            "- Total Deleted Revisions:            {0}".format(self._total_deleted_revisions),
             ""
         ]
 
@@ -92,7 +92,7 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
         TODO
         """
 
-        logger.info("Scanning database for conflicted documents...")
+        logger.info("Deleting document conflicts from database...")
 
         # Start timer
 
@@ -102,22 +102,13 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
 
         self._init_csv_file()
 
-        # Iterate over conflicted documents in view result set
-
-        # TODO: QUESTION: Will this work for rate-limited Cloudant accounts (e.g. HTTP 429)?
-
-        view = View(
-            ddoc=self._ddoc,
-            view_name=constants.VIEW_NAME)
+        # Iterate over conflicted documents
 
         index = 0
 
-        for row in view.result:
+        for row in self._conflicts:
             self._process_row(index, row)
             index += 1
-
-        if index == 0:
-            logger.info("No conflicted documents found in database.")
 
         # Close CSV file
 
@@ -130,17 +121,9 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
 
         # Print status message
 
-        logger.info("Successfully scanned database for conflicted documents (%d ms).", elapsed_time)
+        logger.info("Successfully deleted document conflicts from database (%d ms).", elapsed_time)
 
         return True
-
-
-    def get_conflicts(self):
-        """
-        TODO
-        """
-
-        return self._conflicts
 
 
     # Private Methods --------------------------------------------------------->
@@ -158,6 +141,7 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
             constants.CSV_FIELD_ID,
             constants.CSV_FIELD_NAME,
             constants.CSV_FIELD_CONFLICTS,
+            constants.CSV_FIELD_DELETED,
             constants.CSV_FIELD_REVISIONS
         ]
 
@@ -201,117 +185,45 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
         if logger_util.is_enabled_for_trace(logger):
             logger_util.log_trace(logger, str(row))
 
-        # Validate row
-        # TODO: REVISIT: Should we abort the entire scan when an exception is encountered ?
-
-        error = self._validate_row(
-            row=row,
-            index=self._total_conflicted_documents)
-
-        if error:
-            logger.error(error)
-            return
-
-        # Normalize row
-
-        normalized_row = self._get_normalized_row(row)
-
         # Print row
 
-        display_row = self._get_display_row(
-            index=index,
-            row=normalized_row)
+        display_row = self._get_display_row(index, row)
         logger.info(display_row)
 
         # Track total number of conflicted documents
 
         self._total_conflicted_documents += 1
 
-        # Store conflicted document in memory
+        # Track number of conflicted document revisions
 
-        if self._deletion_mode:
-            self._conflicts.append(normalized_row)
+        field_conflicts = len(row[constants.PROPERTY_VALUE])
+
+        # Track total number of conflicted document revisions
+
+        self._total_conflicted_revisions += field_conflicts
+
+        # Delete conflicted document revisions
+
+        deleted_revisions = self._delete_conflicted_revisions(index, row)
+
+        # Generate CSV fields
+
+        fields = {}
+        fields[constants.CSV_FIELD_ID] = row[constants.PROPERTY_ID]
+        fields[constants.CSV_FIELD_NAME] = row[constants.PROPERTY_KEY]
+        fields[constants.CSV_FIELD_CONFLICTS] = field_conflicts
+        fields[constants.CSV_FIELD_DELETED] = len(deleted_revisions)
+        fields[constants.CSV_FIELD_REVISIONS] = deleted_revisions
 
         # Serialize document to CSV file record
 
-        self._serialize_row(normalized_row)
-
-
-    @staticmethod
-    def _validate_row(row, index):
-        """
-        TODO
-        """
-
-        error = ""
-
-        if not row:
-            # Error: Undefined row
-            # Note: This should never happen
-            error = "Undefined row encountered in the view result set at index [{0}]." \
-                    .format(index)
-        elif not constants.PROPERTY_ID in row:
-            # Error: Undefined row ID
-            # Note: This should never happen
-            error = "Row with an undefined ID encountered in the view result set at index [{0}]." \
-                    .format(index)
-        elif not constants.PROPERTY_KEY in row:
-            # Error: Undefined row key
-            # Note: This should never happen
-            doc_id = row[constants.PROPERTY_ID]
-            error = "Row with an undefined key encountered in the view result set at index [{0}]. " \
-                    "Document ID: {1}." \
-                    .format(index, doc_id)
-        elif not constants.PROPERTY_VALUE in row:
-            # Error: Undefined row value
-            # Note: This should never happen
-            doc_id = row[constants.PROPERTY_ID]
-            error = "Row with an undefined value encountered in the view result set at index [{0}]. " \
-                    "Document ID: {1}." \
-                    .format(index, doc_id)
-        elif not isinstance(row[constants.PROPERTY_VALUE], list) or \
-                len(row[constants.PROPERTY_VALUE]) == 0:
-            # Error: Invalid or empty list of conflicted document revisions
-            # Note: This should never happen
-            doc_id = row[constants.PROPERTY_ID]
-            error = "Invalid or empty list of conflicted document revisions encountered " \
-                    "in the view result set at index [{0}]. " \
-                    "Document ID: {1}." \
-                    .format(index, doc_id)
-
-        return error
-
-
-    @staticmethod
-    def _get_normalized_row(row):
-        """
-        TODO
-        """
-
-        # Sanitize name
-
-        key = row[constants.PROPERTY_KEY]
-        field_name = None
-
-        if string_util.is_defined_string(key):
-            field_name = string_util.sanitize_control_characters(
-                text=key,
-                substitute_char=string_util.SUBSTITUTE_BLOCK_CHAR)
-        else:
-            field_name = constants.VALUE_UNRESOLVED
-
-        normalized_row = {}
-        normalized_row[constants.PROPERTY_ID] = row[constants.PROPERTY_ID]
-        normalized_row[constants.PROPERTY_KEY] = field_name
-        normalized_row[constants.PROPERTY_VALUE] = row[constants.PROPERTY_VALUE]
-
-        return normalized_row
+        self._serialize_csv_fields(fields)
 
 
     @staticmethod
     def _get_display_row(index, row):
         """
-        Serialize row to CSV file record
+        TODO
         """
 
         conflicts_count = len(row[constants.PROPERTY_VALUE])
@@ -326,34 +238,90 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
         return display_row
 
 
-    def _serialize_row(self, row, logger=DEFAULT_LOGGER):
+    def _delete_conflicted_revisions(self, document_index, row, logger=DEFAULT_LOGGER):
         """
-        Serialize row to CSV file record
+        TODO
         """
 
-        field_id = row[constants.PROPERTY_ID]
-        field_name = row[constants.PROPERTY_KEY]
+        document_id = row[constants.PROPERTY_ID]
+        revisions = row[constants.PROPERTY_VALUE]
+        conflicted_revision_count = len(revisions)
+        deleted_revision_count = 0
+        deleted_revisions = []
+        revision_index = 0
 
-        # Number of conflicted document revisions
+        logger.info("Deleting all conflicted revisions: %s (%d)...", document_id, conflicted_revision_count)
 
-        value = row[constants.PROPERTY_VALUE]
-        field_conflicts = len(value)
+        for revision_id in revisions:
 
-        # Track total number of conflicted document revisions
+            # Print revision
 
-        self._total_conflicted_revisions += field_conflicts
+            display_revision = self._get_display_revision(document_index, revision_index, revision_id)
+            logger.info(display_revision)
+
+            # Delete revision
+
+            status = self._database.delete_document_revision(
+                document_id=document_id,
+                revision_id=revision_id)
+
+            if status:
+                deleted_revision_count +=1
+                deleted_revisions.append(revision_id)
+
+            revision_index += 1
+
+        # Track total number of deleted revisions
+
+        self._total_deleted_revisions += deleted_revision_count
+
+        # Track total number of resolved documents
+
+        if conflicted_revision_count == deleted_revision_count:
+            logger.info("Successfully deleted all conflicted revisions: %s (deleted: %d out of %d).",
+                document_id, deleted_revision_count, conflicted_revision_count)
+
+            self._total_resolved_documents += 1
+        else:
+            logger.error("Failed to delete all conflicted revisions: %s (deleted %d out of %d).",
+                document_id, deleted_revision_count, conflicted_revision_count)
+
+        return deleted_revisions
+
+
+    @staticmethod
+    def _get_display_revision(document_index, revision_index, revision_id):
+        """
+        TODO
+        """
+
+        display_revision = "[{0}][{1}] Revision ID: {2}.".format(
+            document_index,
+            revision_index,
+            revision_id)
+
+        return display_revision
+
+
+    def _serialize_csv_fields(self, fields, logger=DEFAULT_LOGGER):
+        """
+        Serialize fields to CSV file record
+        """
+
+        field_id = fields[constants.CSV_FIELD_ID]
 
         # List of conflicted document revisions
 
-        field_revisions = "; ".join(value)
+        field_revisions = "; ".join(fields[constants.CSV_FIELD_REVISIONS])
 
         # Write CSV row
 
         try:
             self._csv_file_writer.writerow({
                 constants.CSV_FIELD_ID: field_id,
-                constants.CSV_FIELD_NAME: field_name,
-                constants.CSV_FIELD_CONFLICTS: field_conflicts,
+                constants.CSV_FIELD_NAME: fields[constants.CSV_FIELD_NAME],
+                constants.CSV_FIELD_CONFLICTS: fields[constants.CSV_FIELD_CONFLICTS],
+                constants.CSV_FIELD_DELETED:  fields[constants.CSV_FIELD_DELETED],
                 constants.CSV_FIELD_REVISIONS: field_revisions
             })
         except ValueError as err:

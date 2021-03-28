@@ -20,7 +20,7 @@
 			"level": "INFO",
 			"propagate": false
 		},
-		"conflict_scanner": {
+		"delete_conflicts_task": {
 			"handlers": [
 				"console"
 			],

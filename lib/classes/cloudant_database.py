@@ -21,9 +21,13 @@
 import logging
 import datetime
 import json
+from urllib.parse import quote
+from urllib.parse import quote_plus
+from pprint import pformat
 import requests
 from requests.exceptions import HTTPError
 from cloudant.client import Cloudant
+from cloudant.error import CloudantDocumentException
 
 from lib.constants import constants
 from lib.utils import error_util
@@ -181,6 +185,152 @@ class CloudantDatabase: # pylint: disable=unused-variable
         return None
 
 
+    def get_document(self, document_id, logger=DEFAULT_LOGGER):
+        """
+        Retrieve the Cloudant document by ID (latest revision)
+        """
+
+        logger.debug("Retrieving Cloudant document: %s...", document_id)
+
+        if self._database is None:
+            message = "Failed to retrieve Cloudant document: {0}. " \
+                "Database connection is closed: {1}.".format(document_id, self._database_name)
+            logger.error(message)
+            return None
+
+        start_time = datetime.datetime.now()
+
+        try:
+            document = self._database[document_id]
+        except KeyError as err:
+            message = "Failed to retrieve Cloudant document: {0}.".format(document_id)
+            logger.error(message)
+            error_util.log_exception(logger, err)
+            return None
+        except HTTPError as err:
+            message = "Failed to retrieve Cloudant document: {0}.".format(document_id)
+            logger.error(message)
+            error_util.log_http_error(logger, err)
+            return None
+
+        if not document:
+            message = "Failed to retrieve Cloudant document: {0}. " \
+                "The document is undefined.".format(document_id)
+            logger.error(message)
+            return None
+
+        end_time = datetime.datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds() * 1000  # ms
+
+        logger.debug("Successfully retrieved Cloudant document: %s (%d ms).", document_id, elapsed_time)
+
+        if logger_util.is_enabled_for_trace(logger):
+            formatted_document = json.dumps(document, indent=constants.JSON_FORMAT_INDENT)
+            logger_util.log_trace(logger, formatted_document)
+
+        return document
+
+
+    def delete_document(self, document_id, logger=DEFAULT_LOGGER):
+        """
+        Delete the Cloudant document by ID
+        """
+
+        logger.info("Deleting Cloudant document: %s...", document_id)
+
+        if self._database is None:
+            message = "Failed to delete Cloudant document: {0}. " \
+                "Database connection is closed: {1}.".format(document_id, self._database_name)
+            logger.error(message)
+            return None
+
+        # Fetch document
+
+        start_time = datetime.datetime.now()
+
+        document = self.get_document(document_id, logger)
+
+        if not document:
+            message = "Failed to delete Cloudant document: {0}. " \
+                "The document is undefined.".format(document_id)
+            logger.error(message)
+            return None
+
+        # Delete document
+
+        try:
+            document.delete()
+        except CloudantDocumentException as err:
+            message = "Failed to delete Cloudant document: {0}. " \
+                "The document revision ID is missing.".format(document_id)
+            logger.error(message)
+            error_util.log_exception(logger, err)
+            return None
+        except HTTPError as err:
+            message = "Failed to delete Cloudant document: {0}.".format(
+                document_id)
+            logger.error(message)
+            error_util.log_http_error(logger, err)
+            return None
+
+        end_time = datetime.datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds() * 1000  # ms
+
+        logger.info("Successfully deleted Cloudant document: %s (%d ms).", document_id, elapsed_time)
+
+        return document
+
+
+    def delete_document_revision(self, document_id, revision_id, logger=DEFAULT_LOGGER):
+        """
+        Delete the Cloudant document revision
+        """
+
+        logger.info("Deleting Cloudant document: %s. Revision: %s...", document_id, revision_id)
+
+        if self._database is None:
+            message = "Failed to delete Cloudant document: {0}. Revision: {1}. " \
+                "Database connection is closed: {2}.".format(document_id, revision_id, self._database_name)
+            logger.error(message)
+            return False
+
+        start_time = datetime.datetime.now()
+
+        document_url = self._get_document_url(document_id)
+
+        if not document_url:
+            message = "Failed to delete Cloudant document: {0}. Revision: {1}. " \
+                "Document URL is undefined: {2}.".format(document_id, revision_id, self._database_name)
+            logger.error(message)
+            return False
+
+        params = {
+            "rev": revision_id
+        }
+
+        session = self._database.r_session
+        response = session.delete(document_url, params=params)
+
+        if logger_util.is_enabled_for_trace(logger):
+            serialized_response = pformat(vars(response))
+            logger_util.log_trace(logger, serialized_response)
+
+        try:
+            response.raise_for_status()
+        except HTTPError as err:
+            logger.error("Failed to delete Cloudant document: %s. Revision: %s.", document_id, revision_id)
+            error_util.log_http_error(logger, err)
+            return False
+
+        end_time = datetime.datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds() * 1000  # ms
+
+        logger.info("Successfully deleted Cloudant document: %s. Revision: %s (%d ms).",
+            document_id, revision_id, elapsed_time)
+
+        return True
+
+
     def get_query_results(self, query, logger=DEFAULT_LOGGER):
         """
         Retrieve a page of the Cloudant Query result set
@@ -303,3 +453,28 @@ class CloudantDatabase: # pylint: disable=unused-variable
             return False
 
         return True
+
+
+    def _get_document_url(self, document_id):
+        """
+        TODO
+        """
+
+        # e.g.
+        # https://cdsxorg.cloudant.com/portal-common-api_ys1-dev-dallas/a.t.smith21%40ibm.com
+
+        if not self._client:
+            return None
+        elif not self._client.server_url:
+            return None
+        elif not self._database_name:
+            return None
+        elif not document_id:
+            return None
+
+        encoded_database_name = quote_plus(self._database_name)
+        encoded_document_id = quote(document_id, safe="")
+        url_parts = (self._client.server_url, encoded_database_name, encoded_document_id)
+        url = url = "/".join(url_parts)
+
+        return url
