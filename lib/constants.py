@@ -88,6 +88,38 @@ class _Constants():
         return "value"
 
     @const
+    def CSV_FILE_EXTENSION():
+        return ".csv"
+
+    @const
+    def TEXT_FILE_EXTENSION():
+        return ".txt"
+
+    @const
+    def FILE_PREFIX():
+        return "conflicts_"
+
+    @const
+    def CSV_FIELD_ID():
+        return "ID"
+
+    @const
+    def CSV_FIELD_NAME():
+        return "Name"
+
+    @const
+    def CSV_FIELD_CONFLICTS():
+        return "Conflicts"
+
+    @const
+    def CSV_FIELD_DELETED():
+        return "Deleted"
+
+    @const
+    def CSV_FIELD_REVISIONS():
+        return "Revisions"
+
+    @const
     def VALUE_UNRESOLVED():
         return "__UNRESOLVED__"
 

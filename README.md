@@ -24,8 +24,8 @@ cd couchdb-conflict-remover
 
 - Select the target CouchDB / Cloudant database.
 - Generate an API key and password with the following permissions:
-   - `_reader`
-   - `_writer`
+   - `_reader` (for scanning)
+   - `_writer` (for deletion)
 
 ### (1.5) Create a conflicts view
 
@@ -75,21 +75,19 @@ make verify
 
 ## (2) Usage
 
+### (2.1) Help
+
 ```shell
 $ python index.py --help
-usage: index.py [-h] -n DATABASE_NAME [-d] [-r RESULTS_DIR] [-c CSV_FILE] [-s SUMMARY_FILE]
+usage: index.py [-h] -n DATABASE_NAME [-d] [-r RESULTS_DIR]
 
 optional arguments:
   -h, --help            show this help message and exit
   -n DATABASE_NAME, --database-name DATABASE_NAME
-                        The name of the target Cloudant database.
+                        The name of the target CouchDB / Cloudant database.
   -d, --delete          Enable deletion mode. Default: False.
   -r RESULTS_DIR, --results-dir RESULTS_DIR
-                        The directory name to use for storing results. Default: results/conflicts_results_2021-03-25_11-36-57.
-  -c CSV_FILE, --csv-file CSV_FILE
-                        The CSV filename to use for outlining Cloudant database conflicts. Default: conflicts_details_2021-03-25_11-36-57.csv.
-  -s SUMMARY_FILE, --summary-file SUMMARY_FILE
-                        The summary filename to use for outlining Cloudant database conflicts. Default: conflicts_summary_2021-03-25_11-36-57.txt.
+                        The directory name to use for storing results. Default: results/conflicts_results_2021-03-28_19-03-31.
 
 === Environment Variables ===
 
@@ -105,3 +103,41 @@ export CLOUDANT_PASSWORD=password
 
 python index.py -d -n projects-api_prod-dallas
 ```
+
+### (2.2) Sample Output
+
+```
+================================================================================
+Overview
+================================================================================
+
+- Cloudant Account:                   dataai
+- Cloudant Database:                  projects-api_prod-dallas
+- Total Documents:                    5163
+- Elapsed Time:                       0:05:46.245396
+
+================================================================================
+Scan Details
+================================================================================
+
+- Total Conflicted Documents:         291
+- Total Conflicted Revisions:         2127
+
+================================================================================
+Deletion Details
+================================================================================
+
+- Total Conflicted Documents:         291
+- Total Resolved Documents:           291
+- Total Conflicted Revisions:         2127
+- Total Deleted Revisions:            2127
+```
+
+### (2.3) Output Files
+
+- (a) Creates a CSV file containing details from the scan phase
+   - e.g. `conflicts_deletion_details_2021-03-28_19-03-31.csv`
+- (b) Creates a CSV file containing details from the deletion phase
+   - e.g. `conflicts_scan_details_2021-03-28_19-03-31.csv`
+- (c) Creates a text file containing summary information for all phases (as shown in the `Sample Output` section)
+   - e.g. `conflicts_summary_2021-03-28_19-03-31.txt`

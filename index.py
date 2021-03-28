@@ -24,14 +24,18 @@ import sys
 import logging
 import argparse
 import pathlib
+import datetime
 
+from lib.constants import constants
 from lib.utils import python_util
 from lib.utils import logger_util
 from lib.utils import date_util
 from lib.utils import directory_util
+from lib.utils import file_util
 from lib.utils.obfuscation_util import obfuscate
-
+from lib.classes.cloudant_database import CloudantDatabase
 from lib.classes.scan_conflicts_task import ScanConflictsTask
+from lib.classes.delete_conflicts_task import DeleteConflictsTask
 
 # Authorship
 
@@ -72,31 +76,29 @@ PROP_CLOUDANT_PASSWORD = "cloudant_password"
 
 CURRENT_TIME = date_util.get_current_timestamp()
 
-CSV_FILE_EXTENSION = ".csv"
-TEXT_FILE_EXTENSION = ".txt"
-RESULTS_DIR = "results"
-FILE_PREFIX = "conflicts_"
-FILE_SEGMENT_DETAILS = "details_"
-FILE_SEGMENT_RESULTS = "results_"
-FILE_SEGMENT_SUMMARY = "summary_"
-
 DEFAULT_RESULTS_DIRNAME = "{0}/{1}{2}{3}".format(
-    RESULTS_DIR,
-    FILE_PREFIX,
-    FILE_SEGMENT_RESULTS,
+    "results",
+    constants.FILE_PREFIX,
+    "results_",
     CURRENT_TIME)
 
-DEFAULT_CSV_FILENAME = "{0}{1}{2}{3}".format(
-    FILE_PREFIX,
-    FILE_SEGMENT_DETAILS,
+SCAN_DETAILS_CSV_FILENAME = "{0}{1}{2}{3}".format(
+    constants.FILE_PREFIX,
+    "scan_details_",
     CURRENT_TIME,
-    CSV_FILE_EXTENSION)
+    constants.CSV_FILE_EXTENSION)
 
-DEFAULT_SUMMARY_FILENAME = "{0}{1}{2}{3}".format(
-    FILE_PREFIX,
-    FILE_SEGMENT_SUMMARY,
+DELETION_DETAILS_CSV_FILENAME = "{0}{1}{2}{3}".format(
+    constants.FILE_PREFIX,
+    "deletion_details_",
     CURRENT_TIME,
-    TEXT_FILE_EXTENSION)
+    constants.CSV_FILE_EXTENSION)
+
+SUMMARY_FILENAME = "{0}{1}{2}{3}".format(
+    constants.FILE_PREFIX,
+    "summary_",
+    CURRENT_TIME,
+    constants.TEXT_FILE_EXTENSION)
 
 DEFAULT_LOGGER = logging.getLogger("index")
 
@@ -115,7 +117,7 @@ def _parse_command_line_args():
         "-n",
         "--database-name",
         required=True,
-        help="The name of the target Cloudant database.")
+        help="The name of the target CouchDB / Cloudant database.")
 
     parser.add_argument(
         "-d",
@@ -130,20 +132,6 @@ def _parse_command_line_args():
         default=DEFAULT_RESULTS_DIRNAME,
         help="The directory name to use for storing results. "
              "Default: {0}.".format(DEFAULT_RESULTS_DIRNAME))
-
-    parser.add_argument(
-        "-c",
-        "--csv-file",
-        default=DEFAULT_CSV_FILENAME,
-        help="The CSV filename to use for outlining Cloudant database conflicts. "
-             "Default: {0}.".format(DEFAULT_CSV_FILENAME))
-
-    parser.add_argument(
-        "-s",
-        "--summary-file",
-        default=DEFAULT_SUMMARY_FILENAME,
-        help="The summary filename to use for outlining Cloudant database conflicts. "
-             "Default: {0}.".format(DEFAULT_SUMMARY_FILENAME))
 
     args = parser.parse_args()
 
@@ -160,9 +148,7 @@ def _display_command_line_args(args, logger=DEFAULT_LOGGER):
         "Command-line Arguments:",
         "- Cloudant Database: {0}.".format(args.database_name),
         "- Deletion Mode: {0}.".format(args.delete),
-        "- Results Directory: {0}.".format(args.results_dir),
-        "- CSV File: {0}.".format(args.csv_file),
-        "- Summary File: {0}.".format(args.summary_file)
+        "- Results Directory: {0}.".format(args.results_dir)
     )
     content = separator.join(string_buffer)
 
@@ -203,7 +189,7 @@ def _display_environment_variables(env_dict, logger=DEFAULT_LOGGER):
     separator = "\n"
     string_buffer = (
         "Environment Variables:",
-        "- Cloudant Database: {0}.".format(env_dict[PROP_CLOUDANT_ACCOUNT]),
+        "- Cloudant Account: {0}.".format(env_dict[PROP_CLOUDANT_ACCOUNT]),
         "- Cloudant API Key: {0}.".format(encoded_cloudant_api_key),
         "- Cloudant Password: {0}.".format(encoded_cloudant_password)
     )
@@ -230,10 +216,37 @@ def _fatal_exit(logger=DEFAULT_LOGGER):
     sys.exit(status)
 
 
+def _get_overview_content(account, database_name, doc_count, elapsed_time):
+    """
+    Generate overview content
+    """
+
+    line = '=' * 80
+    result = [
+        "",
+        line,
+        "Overview",
+        line,
+        "",
+        "- Cloudant Account:                   {0}".format(account),
+        "- Cloudant Database:                  {0}".format(database_name),
+        "- Total Documents:                    {0}".format(doc_count),
+        "- Elapsed Time:                       {0}".format(elapsed_time),
+        ""
+    ]
+
+    return "\n".join(result)
+
+
 def _main(logger=DEFAULT_LOGGER):
     """
     The main function.
     """
+
+    # TODO: FIXME
+    # pylint: disable=too-many-locals
+    # TODO: FIXME
+    # pylint: disable=too-many-statements
 
     status = False
 
@@ -285,23 +298,118 @@ def _main(logger=DEFAULT_LOGGER):
     if status is False:
         _fatal_exit()
 
-    # Run Task: Remove Conflicts
+    # Start timer
 
-    csv_file = _get_qualified_filename(args.results_dir, args.csv_file)
-    summary_file = _get_qualified_filename(args.results_dir, args.summary_file)
+    start_time = datetime.datetime.now()
+
+    # Configure database connection
+
+    account = env_dict[PROP_CLOUDANT_ACCOUNT]
+    database_name = args.database_name
+    database = CloudantDatabase(
+        account=account,
+        api_key=env_dict[PROP_CLOUDANT_API_KEY],
+        password=env_dict[PROP_CLOUDANT_PASSWORD],
+        database_name=database_name)
+
+    # Initialize database client
+
+    status = database.init_client()
+
+    if status is False:
+        _fatal_exit()
+
+    # Open database
+
+    status = database.open_database()
+
+    if status is False:
+        _fatal_exit()
+
+    # Retrieve number of documents in database
+
+    doc_count = database.get_doc_count()
+
+    # Retrieve conflicts design document
+
+    ddoc = database.get_design_document(
+        ddoc_name=constants.DDOC_NAME)
+
+    if ddoc is None:
+        _fatal_exit()
+
+    # Scan database for conflicted documents
+
+    scan_details_csv_file = _get_qualified_filename(args.results_dir, SCAN_DETAILS_CSV_FILENAME)
     scan_conflicts_task = ScanConflictsTask(
-        cloudant_account=env_dict[PROP_CLOUDANT_ACCOUNT],
-        cloudant_api_key=env_dict[PROP_CLOUDANT_API_KEY],
-        cloudant_password=env_dict[PROP_CLOUDANT_PASSWORD],
-        database_name=args.database_name,
         deletion_mode=args.delete,
-        csv_file=csv_file,
-        summary_file=summary_file)
+        ddoc=ddoc,
+        csv_file=scan_details_csv_file)
 
     status = scan_conflicts_task.run()
 
     if status is False:
         _fatal_exit()
+
+    # Remove conflicted documents from database
+
+    conflicts = scan_conflicts_task.get_conflicts()
+    delete_conflicts_task = None
+
+    if args.delete and \
+            len(conflicts) != 0:
+
+        deletion_details_csv_file = _get_qualified_filename(args.results_dir, DELETION_DETAILS_CSV_FILENAME)
+        delete_conflicts_task = DeleteConflictsTask(
+            database=database,
+            conflicts=conflicts,
+            csv_file=deletion_details_csv_file)
+
+        status = delete_conflicts_task.run()
+
+        if status is False:
+            _fatal_exit()
+
+    # Close database account connection
+
+    database.shutdown_client()
+
+    # Stop timer
+
+    end_time = datetime.datetime.now()
+    elapsed_time = end_time - start_time
+
+    # Generate summary content
+
+    overview_content = _get_overview_content(
+        account=account,
+        database_name=database_name,
+        doc_count=doc_count,
+        elapsed_time=elapsed_time)
+
+    scan_details_content = str(scan_conflicts_task)
+
+    deletion_details_content = ""
+
+    if delete_conflicts_task:
+        deletion_details_content = str(delete_conflicts_task)
+
+    summary_content = "{0}{1}{2}".format(
+        overview_content,
+        scan_details_content,
+        deletion_details_content)
+
+    # Create summary file
+
+    summary_file = _get_qualified_filename(args.results_dir, SUMMARY_FILENAME)
+    file_util.create_text_file(
+        file=summary_file,
+        content=summary_content,
+        logger=DEFAULT_LOGGER)
+
+    # Display summary content
+
+    print(summary_content)
 
     # Exit process
 
