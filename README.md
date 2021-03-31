@@ -79,7 +79,7 @@ make verify
 
 ```shell
 $ python index.py --help
-usage: index.py [-h] -n DATABASE_NAME [-d] [-r RESULTS_DIR]
+usage: index.py [-h] -n DATABASE_NAME [-d] [-r RESULTS_DIR] [-t THRESHOLD]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -87,7 +87,9 @@ optional arguments:
                         The name of the target CouchDB / Cloudant database.
   -d, --delete          Enable deletion mode. Default: False.
   -r RESULTS_DIR, --results-dir RESULTS_DIR
-                        The directory name to use for storing results. Default: results/conflicts_results_2021-03-28_19-03-31.
+                        The directory name to use for storing results. Default: results/conflicts_results_2021-03-31_01-03-46.
+  -t THRESHOLD, --threshold THRESHOLD
+                        The maximum threshold of revisions used to determine whether a conflicted document is included during the deletion phase. Default: 5000.
 
 === Environment Variables ===
 
