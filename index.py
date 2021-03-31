@@ -100,6 +100,8 @@ SUMMARY_FILENAME = "{0}{1}{2}{3}".format(
     CURRENT_TIME,
     constants.TEXT_FILE_EXTENSION)
 
+DEFAULT_THRESHOLD = 5000 # revisions
+
 DEFAULT_LOGGER = logging.getLogger("index")
 
 # Functions ------------------------------------------------------------------->
@@ -133,9 +135,32 @@ def _parse_command_line_args():
         help="The directory name to use for storing results. "
              "Default: {0}.".format(DEFAULT_RESULTS_DIRNAME))
 
+    parser.add_argument(
+        "-t",
+        "--threshold",
+        type=int,
+        default=DEFAULT_THRESHOLD,
+        help="The maximum threshold of revisions used to determine whether a conflicted document "
+             "is included during the deletion phase. "
+             "Default: {0}.".format(DEFAULT_THRESHOLD))
+
     args = parser.parse_args()
 
     return args
+
+
+def _validate_command_line_args(args, logger=DEFAULT_LOGGER):
+    """
+    TODO
+    """
+
+    # Threshold
+
+    if args.threshold <= 0:
+        logger.error("Value specified for 'threshold' CLI option is invalid: %d.", args.threshold)
+        return False
+
+    return True
 
 
 def _display_command_line_args(args, logger=DEFAULT_LOGGER):
@@ -148,7 +173,8 @@ def _display_command_line_args(args, logger=DEFAULT_LOGGER):
         "Command-line Arguments:",
         "- Cloudant Database: {0}.".format(args.database_name),
         "- Deletion Mode: {0}.".format(args.delete),
-        "- Results Directory: {0}.".format(args.results_dir)
+        "- Results Directory: {0}.".format(args.results_dir),
+        "- Threshold: {0}.".format(args.threshold)
     )
     content = separator.join(string_buffer)
 
@@ -266,7 +292,7 @@ def _main(logger=DEFAULT_LOGGER):
     if status is False:
         _fatal_exit()
 
-    # Command-line arguments
+    # Parse command-line arguments
 
     args = _parse_command_line_args()
 
@@ -274,11 +300,18 @@ def _main(logger=DEFAULT_LOGGER):
 
     logger.info("[-- CouchDB Conflict Remover --------------------------------------------------".upper())
 
+    # Validate command-line arguments
+
+    status = _validate_command_line_args(args)
+
+    if status is False:
+        _fatal_exit()
+
     # Display command-line argument values
 
     _display_command_line_args(args)
 
-    # Environment Variables
+    # Parse environment Variables
 
     env_dict = _parse_environment_variables()
 
@@ -343,6 +376,7 @@ def _main(logger=DEFAULT_LOGGER):
     scan_details_csv_file = _get_qualified_filename(args.results_dir, SCAN_DETAILS_CSV_FILENAME)
     scan_conflicts_task = ScanConflictsTask(
         deletion_mode=args.delete,
+        threshold=args.threshold,
         ddoc=ddoc,
         csv_file=scan_details_csv_file)
 

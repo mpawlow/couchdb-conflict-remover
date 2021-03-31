@@ -41,12 +41,13 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
     TODO
     """
 
-    def __init__(self, deletion_mode, ddoc, csv_file):
+    def __init__(self, deletion_mode, threshold, ddoc, csv_file):
         """
         Constructor
         """
 
         self._deletion_mode = deletion_mode
+        self._threshold = threshold
         self._ddoc = ddoc
         self._csv_file = csv_file
 
@@ -221,6 +222,7 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
         display_row = self._get_display_row(
             index=index,
             row=normalized_row)
+
         logger.info(display_row)
 
         # Track total number of conflicted documents
@@ -229,8 +231,7 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
 
         # Store conflicted document in memory
 
-        if self._deletion_mode:
-            self._conflicts.append(normalized_row)
+        self._store_conflicted_document(normalized_row)
 
         # Serialize document to CSV file record
 
@@ -308,13 +309,12 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
         return normalized_row
 
 
-    @staticmethod
-    def _get_display_row(index, row):
+    def _get_display_row(self, index, row):
         """
         Serialize row to CSV file record
         """
 
-        conflicts_count = len(row[constants.PROPERTY_VALUE])
+        conflicts_count = self._get_conflicts_count(row)
         display_row = "[{0}] Document ID: {1}. {2}: {3}. {4}: {5}.".format(
             index,
             row[constants.PROPERTY_ID],
@@ -324,6 +324,47 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
             conflicts_count)
 
         return display_row
+
+
+    @staticmethod
+    def _get_conflicts_count(row):
+        """
+        TODO
+        """
+
+        value = row[constants.PROPERTY_VALUE]
+        conflicts_count = len(value)
+
+        return conflicts_count
+
+
+    def _store_conflicted_document(self, row, logger=DEFAULT_LOGGER):
+        """
+        TODO
+        """
+
+        if not self._deletion_mode:
+            # Scan Mode
+            return
+
+        # Deletion Mode
+
+        conflicts_count = self._get_conflicts_count(row)
+
+        if conflicts_count <= self._threshold:
+            self._conflicts.append(row)
+            return
+
+        message = "Conflicted document omitted from deletion phase due to exceeding revision threshold. " \
+                  "Document ID: {0}. {1}: {2}. {3}: {4} > {5}.".format(
+            row[constants.PROPERTY_ID],
+            constants.CSV_FIELD_NAME,
+            row[constants.PROPERTY_KEY],
+            constants.CSV_FIELD_CONFLICTS,
+            conflicts_count,
+            self._threshold)
+
+        logger.warning(message)
 
 
     def _serialize_row(self, row, logger=DEFAULT_LOGGER):
@@ -336,8 +377,7 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
 
         # Number of conflicted document revisions
 
-        value = row[constants.PROPERTY_VALUE]
-        field_conflicts = len(value)
+        field_conflicts = self._get_conflicts_count(row)
 
         # Track total number of conflicted document revisions
 
@@ -345,6 +385,7 @@ class ScanConflictsTask(TaskInterface): # pylint: disable=unused-variable
 
         # List of conflicted document revisions
 
+        value = row[constants.PROPERTY_VALUE]
         field_revisions = "; ".join(value)
 
         # Write CSV row
